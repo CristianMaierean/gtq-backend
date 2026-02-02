@@ -30,6 +30,15 @@ app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/", (req, res) => {
+  res.status(200).send("GTQ backend is running ✅");
+});
+
+app.get("/ebay/active-test", (req, res) => {
+  res.json({ ok: true, message: "active-test route works ✅", q: req.query.q || null });
+});
+
+
 app.post("/api/quote", (req, res) => {
   const { selections, mode } = req.body || {};
   const result = computeQuote({ selections, mode }, OFFERS);
