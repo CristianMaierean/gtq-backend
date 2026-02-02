@@ -1,0 +1,8 @@
+# Dependencies
+node_modules/
+
+# GTQ local-only pricing + secrets
+data/gtq-prices.csv
+.env
+.env.*
+!.env.example
