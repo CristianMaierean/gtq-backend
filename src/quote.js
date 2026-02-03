@@ -56,26 +56,22 @@ export function computeQuote({ selections, mode = "part", pcQuantity = 1 }, offe
     credit += Number(offer.credit || 0) * qty;
   }
 
-  if (mode === "pc") {
-    const hasCPU = selections.some((p) => clean(p?.Category) === "CPU");
-    const hasGPU = selections.some((p) => clean(p?.Category) === "GPU");
+  // PC rule: must have CPU + GPU (+ optional RAM), then add bonus
+if (mode === "pc") {
+  const hasCPU = selections.some(p => p.Category === "CPU");
+  const hasGPU = selections.some(p => p.Category === "GPU");
 
-    if (!hasCPU || !hasGPU) {
-      return { ok: false, error: "PC quote requires at least CPU + GPU." };
-    }
-
-    // Apply bonuses once per PC, then multiply by pc quantity
-    cash = (cash + 50) * pcQty;
-    credit = (credit + 100) * pcQty;
-
-    return {
-      ok: true,
-      mode: "pc",
-      pcQuantity: pcQty,
-      cash: Math.round(cash),
-      credit: Math.round(credit),
-    };
+  if (!hasCPU || !hasGPU) {
+    return { ok: false, error: "PC quote requires at least CPU + GPU." };
   }
+
+  // RAM is optional but included if present
+  // (already added to cash/credit during the loop above)
+
+  cash += 50;
+  credit += 100;
+}
+
 
   // part mode
   return {
