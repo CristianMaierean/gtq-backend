@@ -4,7 +4,9 @@ function clean(s) {
   return String(s ?? "").trim().replace(/\s+/g, " ");
 }
 
-// Basic CSV parser that supports quoted values with commas.
+/**
+ * Minimal CSV parser that supports quoted commas
+ */
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -16,44 +18,56 @@ function parseCsv(text) {
     const next = text[i + 1];
 
     if (ch === '"' && inQuotes && next === '"') {
+      // escaped quote
       cur += '"';
       i++;
       continue;
     }
+
     if (ch === '"') {
       inQuotes = !inQuotes;
       continue;
     }
-    if (ch === "," && !inQuotes) {
+
+    if (!inQuotes && ch === ",") {
       row.push(cur);
       cur = "";
       continue;
     }
-    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+
+    if (!inQuotes && (ch === "\n" || ch === "\r")) {
       if (ch === "\r" && next === "\n") i++;
       row.push(cur);
-      rows.push(row.map((c) => c.trim()));
+      rows.push(row);
       row = [];
       cur = "";
       continue;
     }
+
     cur += ch;
   }
 
+  // last cell
   if (cur.length || row.length) {
     row.push(cur);
-    rows.push(row.map((c) => c.trim()));
+    rows.push(row);
   }
 
-  return rows;
+  return rows.map(r => r.map(v => clean(v)));
+}
+
+function toNumber(v) {
+  const n = Number(String(v || "").replace(/[^\d.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
 }
 
 export function loadPriceTable() {
   const text = getPricesCsvText();
-  const rows = parseCsv(String(text || "").trim());
-  if (rows.length < 2) throw new Error("CSV appears empty");
+  const rows = parseCsv(text);
 
-  const headers = rows[0].map(clean);
+  if (!rows.length || rows.length < 2) throw new Error("CSV appears empty");
+
+  const headers = rows[0];
   const idx = (name) => headers.indexOf(name);
 
   const iCat = idx("Category");
@@ -63,10 +77,8 @@ export function loadPriceTable() {
   const iCash = idx("Cash offer");
   const iCredit = idx("Store Credit Offer");
 
-  if ([iCat, iSub, iBrand, iItem, iCash, iCredit].some((i) => i < 0)) {
-    throw new Error(
-      `CSV headers missing. Required: Category, Subgroup, Brand, Item, Cash offer, Store Credit Offer`
-    );
+  if ([iCat, iSub, iBrand, iItem, iCash, iCredit].some(i => i === -1)) {
+    throw new Error("CSV headers missing. Required: Category,Subgroup,Brand,Item,Cash offer,Store Credit Offer");
   }
 
   const map = new Map();
@@ -75,18 +87,11 @@ export function loadPriceTable() {
     const cols = rows[i];
     if (!cols || cols.length < headers.length) continue;
 
-    const Category = clean(cols[iCat]);
-    const Subgroup = clean(cols[iSub]);
-    const Brand = clean(cols[iBrand]);
-    const Item = clean(cols[iItem]);
-
-    if (!Category || !Item) continue;
-
-    const key = `${Category}||${Subgroup}||${Brand}||${Item}`;
+    const key = `${clean(cols[iCat])}||${clean(cols[iSub])}||${clean(cols[iBrand])}||${clean(cols[iItem])}`;
 
     map.set(key, {
-      cash: Number(cols[iCash] || 0),
-      credit: Number(cols[iCredit] || 0),
+      cash: toNumber(cols[iCash]),
+      credit: toNumber(cols[iCredit]),
     });
   }
 
