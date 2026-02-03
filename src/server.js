@@ -12,70 +12,67 @@ app.use(express.json());
 
 /**
  * =========================
- * 1) CORS LOCK (Shopify only)
+ * CORS LOCK (Shopify only)
  * =========================
- * Set GTQ_ALLOWED_ORIGINS in Render:
- *   https://gamertech.ca,https://www.gamertech.ca
+ * Render env:
+ * GTQ_ALLOWED_ORIGINS=https://gamertech.ca,https://www.gamertech.ca
  */
 const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS || "https://gamertech.ca")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow same-origin (no Origin header) for tools like curl/health checks
+      // Allow requests without Origin header (curl/health checks)
       if (!origin) return cb(null, true);
 
       if (allowedOrigins.includes(origin)) return cb(null, true);
       return cb(new Error(`CORS blocked for origin: ${origin}`));
     },
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-gtq-key"],
+    allowedHeaders: ["Content-Type"],
   })
 );
 
-// Nice preflight handling
 app.options("*", cors());
 
 /**
  * =========================
- * 2) API KEY LOCK (real security)
+ * Basic Rate Limiting (in-memory)
  * =========================
- * Set GTQ_API_KEY in Render (a long secret)
- * Frontend must send: header "x-gtq-key": "<your key>"
+ * Prevent spam without needing any secret in the browser.
  */
-const API_KEY = process.env.GTQ_API_KEY || "";
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 60; // 60 requests / minute / IP (adjust as needed)
 
-// Protect only the endpoints you care about
-function requireApiKey(req, res, next) {
-  // Only lock these paths
-  const locked =
-    req.path.startsWith("/api/") || req.path.startsWith("/ebay/");
+const ipHits = new Map(); // ip => [timestamps]
+function rateLimit(req, res, next) {
+  const ip =
+    (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+    req.socket?.remoteAddress ||
+    "unknown";
 
-  if (!locked) return next();
+  const now = Date.now();
+  const arr = ipHits.get(ip) || [];
+  const fresh = arr.filter((t) => now - t < RATE_WINDOW_MS);
 
-  // If you forgot to set the key on Render, fail safely in production
-  if (!API_KEY) {
-    return res.status(500).json({
-      error: "Server missing GTQ_API_KEY env var",
-    });
+  if (fresh.length >= RATE_MAX) {
+    ipHits.set(ip, fresh);
+    return res.status(429).json({ ok: false, error: "Too many requests. Please try again shortly." });
   }
 
-  const key = req.headers["x-gtq-key"];
-  if (!key || key !== API_KEY) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
+  fresh.push(now);
+  ipHits.set(ip, fresh);
   next();
 }
 
-app.use(requireApiKey);
+app.use(rateLimit);
 
 /**
  * =========================
- * 3) Load prices
+ * Load prices once at boot
  * =========================
  */
 let OFFERS = new Map();
@@ -84,6 +81,7 @@ function reloadPrices() {
   OFFERS = loadPriceTable();
   console.log("✅ Loaded pricing rows:", OFFERS.size);
 }
+
 reloadPrices();
 
 /**
@@ -91,31 +89,45 @@ reloadPrices();
  * Public routes
  * =========================
  */
-app.get("/health", (req, res) => {
-  res.json({ ok: true });
-});
+app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/", (req, res) => res.status(200).send("GTQ backend is running ✅"));
 
-app.get("/", (req, res) => {
-  res.status(200).send("GTQ backend is running ✅");
+/**
+ * =========================
+ * Quote endpoint (PUBLIC, CORS-locked)
+ * =========================
+ * Body:
+ * {
+ *   selections: [{ Category, Subgroup, Brand, Item, Quantity? }],
+ *   mode: "part" | "pc",
+ *   pcQuantity?: number
+ * }
+ */
+app.post("/api/quote", (req, res) => {
+  try {
+    const result = computeQuote(req.body || {}, OFFERS);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err?.message || "Server error" });
+  }
 });
 
 /**
  * =========================
- * Locked routes (needs x-gtq-key)
+ * Optional: Reload prices (admin)
  * =========================
+ * Set GTQ_ADMIN_KEY in Render if you want this.
+ * POST /api/admin/reload with header: x-admin-key
  */
-app.get("/ebay/active-test", (req, res) => {
-  res.json({
-    ok: true,
-    message: "active-test route works ✅",
-    q: req.query.q || null,
-  });
-});
+const ADMIN_KEY = process.env.GTQ_ADMIN_KEY || "";
+app.post("/api/admin/reload", (req, res) => {
+  if (!ADMIN_KEY) return res.status(403).json({ ok: false, error: "Admin reload disabled" });
 
-app.post("/api/quote", (req, res) => {
-  const { selections, mode } = req.body || {};
-  const result = computeQuote({ selections, mode }, OFFERS);
-  res.json(result);
+  const key = req.headers["x-admin-key"];
+  if (!key || key !== ADMIN_KEY) return res.status(403).json({ ok: false, error: "Forbidden" });
+
+  reloadPrices();
+  res.json({ ok: true, rows: OFFERS.size });
 });
 
 const PORT = process.env.PORT || 8790;
