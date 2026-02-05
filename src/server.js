@@ -13,47 +13,32 @@ app.use(express.json());
 
 /**
  * =========================
- * CORS SETUP
+ * CORS (Shopify storefront)
  * =========================
+ * Render env:
+ * GTQ_ALLOWED_ORIGINS = https://gamertech.ca,https://www.gamertech.ca
  */
-
-// Locked origins for quote endpoint
-const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS ||
-  "https://gamertech.ca,https://www.gamertech.ca"
-)
+const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS || "https://gamertech.ca,https://www.gamertech.ca")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
-const corsLocked = cors({
+const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // allow server-to-server/health checks
+    // Allow no-origin requests (Render health checks, curl, etc.)
+    if (!origin) return cb(null, true);
+
     if (allowedOrigins.includes(origin)) return cb(null, true);
-
-    // Optional (helps Shopify preview):
-    // if (origin.endsWith(".myshopify.com")) return cb(null, true);
-
     return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
-  methods: ["POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-});
+  credentials: true, // IMPORTANT: fixes your “Access-Control-Allow-Credentials” error
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Accept"],
+};
 
-// Open CORS for leads (so beacons + previews don’t break)
-const corsOpen = cors({
-  origin: true,
-  methods: ["POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-});
-
-/**
- * Apply CORS per-route (IMPORTANT)
- */
-app.use("/api/leads", corsOpen);
-app.options("/api/leads/*", corsOpen);
-
-app.use("/api/quote", corsLocked);
-app.options("/api/quote", corsLocked);
+app.use(cors(corsOptions));
+// IMPORTANT: preflight must use SAME options (NOT cors() with defaults)
+app.options("*", cors(corsOptions));
 
 /**
  * =========================
@@ -61,6 +46,7 @@ app.options("/api/quote", corsLocked);
  * =========================
  */
 let OFFERS = new Map();
+
 function reloadPrices() {
   OFFERS = loadPriceTable();
   console.log("✅ Loaded pricing rows:", OFFERS.size);
@@ -94,9 +80,13 @@ app.post("/api/quote", (req, res) => {
   }
 });
 
-// Leads (never block UX)
+/**
+ * Lead capture (POST only)
+ * Note: “Cannot GET /api/leads/quote” is normal if you open it in a browser.
+ */
 app.post("/api/leads/quote", (req, res) => {
   res.json({ ok: true });
+
   upsertLead({ ...req.body, stage: "BROWSING" }).catch((e) =>
     console.error("❌ lead STEP1 save failed:", e?.message || e)
   );
@@ -104,9 +94,18 @@ app.post("/api/leads/quote", (req, res) => {
 
 app.post("/api/leads/lock", (req, res) => {
   res.json({ ok: true });
+
   upsertLead({ ...req.body, stage: "COMPLETED" }).catch((e) =>
     console.error("❌ lead STEP2 save failed:", e?.message || e)
   );
+});
+
+// Optional: clean JSON error for CORS blocks (helps debugging)
+app.use((err, req, res, next) => {
+  if (String(err?.message || "").startsWith("CORS blocked")) {
+    return res.status(403).json({ ok: false, error: err.message });
+  }
+  next(err);
 });
 
 const PORT = process.env.PORT || 8790;
