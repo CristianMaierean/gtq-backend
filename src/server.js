@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-
+import "./db.js";
 import { loadPriceTable } from "./priceTable.js";
 import { computeQuote } from "./quote.js";
 import { initLeadTable, upsertLead } from "./db.js";
