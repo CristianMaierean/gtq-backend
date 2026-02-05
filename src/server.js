@@ -1,4 +1,3 @@
-// src/server.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -10,47 +9,59 @@ import { initLeadTable, upsertLead } from "./db.js";
 dotenv.config();
 
 const app = express();
+app.use(express.json());
 
 /**
  * =========================
- * CORS (Shopify only)
+ * CORS
  * =========================
- * Render env:
- * GTQ_ALLOWED_ORIGINS = https://gamertech.ca,https://www.gamertech.ca
- *
- * IMPORTANT:
- * - Do NOT throw an error in the origin callback (it can break preflight)
- * - Handle OPTIONS with the SAME cors options
+ * Locked for /api/quote
+ * Open for /api/leads/* (to avoid Shopify preview / beacon issues)
  */
+
+// Locked origins for quote endpoint
 const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS ||
-  "https://gamertech.ca,https://www.gamertech.ca")
+  "https://gamertech.ca,https://www.gamertech.ca"
+)
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
-const corsOptions = {
+const corsLocked = cors({
   origin: (origin, cb) => {
-    // Allow no-origin requests (Render health checks, curl, etc.)
+    // allow no-origin (curl/health checks)
     if (!origin) return cb(null, true);
 
-    // Allow your storefront domains
+    // exact match list
     if (allowedOrigins.includes(origin)) return cb(null, true);
 
-    // IMPORTANT: don't "error" here — just disallow
-    return cb(null, false);
+    // (optional) if you want to allow Shopify preview domains safely:
+    // if (origin.endsWith(".myshopify.com")) return cb(null, true);
+
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"], // add "Authorization" if you ever need it
-  credentials: false,
-  optionsSuccessStatus: 204,
-};
+  allowedHeaders: ["Content-Type"],
+});
 
-// CORS must be registered BEFORE routes
-app.use(cors(corsOptions));
-// Ensure preflight always gets handled correctly
-app.options("*", cors(corsOptions));
+// Open CORS for lead endpoints only (prevents beacon/ping CORS failures)
+const corsOpen = cors({
+  origin: true, // reflect whatever origin called it
+  methods: ["POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+});
 
-app.use(express.json({ limit: "1mb" }));
+/**
+ * Apply open CORS ONLY to leads routes
+ */
+app.use("/api/leads", corsOpen);
+app.options("/api/leads/*", corsOpen);
+
+/**
+ * Apply locked CORS for everything else (including /api/quote)
+ */
+app.use(corsLocked);
+app.options("*", corsLocked);
 
 /**
  * =========================
@@ -80,7 +91,6 @@ initLeadTable()
  * =========================
  */
 app.get("/health", (req, res) => res.json({ ok: true }));
-
 app.get("/", (req, res) => res.status(200).send("GTQ backend is running ✅"));
 
 app.post("/api/quote", (req, res) => {
@@ -95,16 +105,13 @@ app.post("/api/quote", (req, res) => {
 
 /**
  * Lead capture endpoints
- * - NEVER block or break quoting
+ * - NEVER block quoting
  * - Always return ok:true immediately
  */
 app.post("/api/leads/quote", (req, res) => {
   res.json({ ok: true });
 
-  upsertLead({
-    ...req.body,
-    stage: "BROWSING",
-  }).catch((e) =>
+  upsertLead({ ...req.body, stage: "BROWSING" }).catch((e) =>
     console.error("❌ lead STEP1 save failed:", e?.message || e)
   );
 });
@@ -112,10 +119,7 @@ app.post("/api/leads/quote", (req, res) => {
 app.post("/api/leads/lock", (req, res) => {
   res.json({ ok: true });
 
-  upsertLead({
-    ...req.body,
-    stage: "COMPLETED",
-  }).catch((e) =>
+  upsertLead({ ...req.body, stage: "COMPLETED" }).catch((e) =>
     console.error("❌ lead STEP2 save failed:", e?.message || e)
   );
 });
