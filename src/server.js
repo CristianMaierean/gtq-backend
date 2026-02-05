@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 
 import { loadPriceTable } from "./priceTable.js";
 import { computeQuote } from "./quote.js";
+import { initLeadTable, upsertLead } from "./db.js";
 
 dotenv.config();
 
@@ -54,6 +55,15 @@ reloadPrices();
 
 /**
  * =========================
+ * Init Postgres lead table (non-fatal)
+ * =========================
+ */
+initLeadTable()
+  .then(() => console.log("✅ Lead table ready (gtq_leads)"))
+  .catch((e) => console.error("❌ Lead table init failed:", e?.message || e));
+
+/**
+ * =========================
  * Routes
  * =========================
  */
@@ -69,6 +79,30 @@ app.post("/api/quote", (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || "Server error" });
   }
+});
+
+/**
+ * Lead capture endpoints
+ * - NEVER block or break quoting
+ * - Always return ok:true immediately
+ */
+app.post("/api/leads/quote", (req, res) => {
+  res.json({ ok: true });
+
+  // Fire-and-forget DB write
+  upsertLead({
+    ...req.body,
+    stage: "BROWSING",
+  }).catch((e) => console.error("❌ lead STEP1 save failed:", e?.message || e));
+});
+
+app.post("/api/leads/lock", (req, res) => {
+  res.json({ ok: true });
+
+  upsertLead({
+    ...req.body,
+    stage: "COMPLETED",
+  }).catch((e) => console.error("❌ lead STEP2 save failed:", e?.message || e));
 });
 
 const PORT = process.env.PORT || 8790;
