@@ -1,7 +1,8 @@
+// src/server.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import "./db.js";
+
 import { loadPriceTable } from "./priceTable.js";
 import { computeQuote } from "./quote.js";
 import { initLeadTable, upsertLead } from "./db.js";
@@ -9,36 +10,47 @@ import { initLeadTable, upsertLead } from "./db.js";
 dotenv.config();
 
 const app = express();
-app.use(express.json());
 
 /**
  * =========================
- * CORS LOCK (Shopify only)
+ * CORS (Shopify only)
  * =========================
  * Render env:
  * GTQ_ALLOWED_ORIGINS = https://gamertech.ca,https://www.gamertech.ca
+ *
+ * IMPORTANT:
+ * - Do NOT throw an error in the origin callback (it can break preflight)
+ * - Handle OPTIONS with the SAME cors options
  */
-const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS || "https://gamertech.ca,https://www.gamertech.ca")
+const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS ||
+  "https://gamertech.ca,https://www.gamertech.ca")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Allow no-origin requests for health checks
-      if (!origin) return cb(null, true);
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Allow no-origin requests (Render health checks, curl, etc.)
+    if (!origin) return cb(null, true);
 
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
+    // Allow your storefront domains
+    if (allowedOrigins.includes(origin)) return cb(null, true);
 
-// Preflight
-app.options("*", cors());
+    // IMPORTANT: don't "error" here — just disallow
+    return cb(null, false);
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"], // add "Authorization" if you ever need it
+  credentials: false,
+  optionsSuccessStatus: 204,
+};
+
+// CORS must be registered BEFORE routes
+app.use(cors(corsOptions));
+// Ensure preflight always gets handled correctly
+app.options("*", cors(corsOptions));
+
+app.use(express.json({ limit: "1mb" }));
 
 /**
  * =========================
@@ -89,11 +101,12 @@ app.post("/api/quote", (req, res) => {
 app.post("/api/leads/quote", (req, res) => {
   res.json({ ok: true });
 
-  // Fire-and-forget DB write
   upsertLead({
     ...req.body,
     stage: "BROWSING",
-  }).catch((e) => console.error("❌ lead STEP1 save failed:", e?.message || e));
+  }).catch((e) =>
+    console.error("❌ lead STEP1 save failed:", e?.message || e)
+  );
 });
 
 app.post("/api/leads/lock", (req, res) => {
@@ -102,7 +115,9 @@ app.post("/api/leads/lock", (req, res) => {
   upsertLead({
     ...req.body,
     stage: "COMPLETED",
-  }).catch((e) => console.error("❌ lead STEP2 save failed:", e?.message || e));
+  }).catch((e) =>
+    console.error("❌ lead STEP2 save failed:", e?.message || e)
+  );
 });
 
 const PORT = process.env.PORT || 8790;
