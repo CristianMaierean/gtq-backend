@@ -13,10 +13,8 @@ app.use(express.json());
 
 /**
  * =========================
- * CORS
+ * CORS SETUP
  * =========================
- * Locked for /api/quote
- * Open for /api/leads/* (to avoid Shopify preview / beacon issues)
  */
 
 // Locked origins for quote endpoint
@@ -29,47 +27,40 @@ const allowedOrigins = (process.env.GTQ_ALLOWED_ORIGINS ||
 
 const corsLocked = cors({
   origin: (origin, cb) => {
-    // allow no-origin (curl/health checks)
-    if (!origin) return cb(null, true);
-
-    // exact match list
+    if (!origin) return cb(null, true); // allow server-to-server/health checks
     if (allowedOrigins.includes(origin)) return cb(null, true);
 
-    // (optional) if you want to allow Shopify preview domains safely:
+    // Optional (helps Shopify preview):
     // if (origin.endsWith(".myshopify.com")) return cb(null, true);
 
     return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 });
 
-// Open CORS for lead endpoints only (prevents beacon/ping CORS failures)
+// Open CORS for leads (so beacons + previews don’t break)
 const corsOpen = cors({
-  origin: true, // reflect whatever origin called it
+  origin: true,
   methods: ["POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 });
 
 /**
- * Apply open CORS ONLY to leads routes
+ * Apply CORS per-route (IMPORTANT)
  */
 app.use("/api/leads", corsOpen);
 app.options("/api/leads/*", corsOpen);
 
-/**
- * Apply locked CORS for everything else (including /api/quote)
- */
-app.use(corsLocked);
-app.options("*", corsLocked);
+app.use("/api/quote", corsLocked);
+app.options("/api/quote", corsLocked);
 
 /**
  * =========================
- * Load pricing table from CSV env
+ * Load pricing table
  * =========================
  */
 let OFFERS = new Map();
-
 function reloadPrices() {
   OFFERS = loadPriceTable();
   console.log("✅ Loaded pricing rows:", OFFERS.size);
@@ -78,7 +69,7 @@ reloadPrices();
 
 /**
  * =========================
- * Init Postgres lead table (non-fatal)
+ * Init Postgres lead table
  * =========================
  */
 initLeadTable()
@@ -103,14 +94,9 @@ app.post("/api/quote", (req, res) => {
   }
 });
 
-/**
- * Lead capture endpoints
- * - NEVER block quoting
- * - Always return ok:true immediately
- */
+// Leads (never block UX)
 app.post("/api/leads/quote", (req, res) => {
   res.json({ ok: true });
-
   upsertLead({ ...req.body, stage: "BROWSING" }).catch((e) =>
     console.error("❌ lead STEP1 save failed:", e?.message || e)
   );
@@ -118,7 +104,6 @@ app.post("/api/leads/quote", (req, res) => {
 
 app.post("/api/leads/lock", (req, res) => {
   res.json({ ok: true });
-
   upsertLead({ ...req.body, stage: "COMPLETED" }).catch((e) =>
     console.error("❌ lead STEP2 save failed:", e?.message || e)
   );
