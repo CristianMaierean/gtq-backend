@@ -9,8 +9,6 @@ function getPool() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Missing DATABASE_URL env var.");
 
-  // Render Postgres generally works fine with SSL enabled.
-  // Internal URL usually does not require SSL, but allowing it keeps things stable across configs.
   pool = new Pool({
     connectionString: url,
     ssl: { rejectUnauthorized: false },
@@ -22,6 +20,7 @@ function getPool() {
 export async function initLeadTable() {
   const p = getPool();
 
+  // Base table
   await p.query(`
     CREATE TABLE IF NOT EXISTS gtq_leads (
       id BIGSERIAL PRIMARY KEY,
@@ -41,10 +40,18 @@ export async function initLeadTable() {
     );
   `);
 
+  // Ensure unique (email, phone)
   await p.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS gtq_leads_email_phone_uidx
     ON gtq_leads (email, phone);
   `);
+
+  // ---- Add follow-up related columns if missing ----
+  // These are safe even if you already added them earlier.
+  await p.query(`ALTER TABLE gtq_leads ADD COLUMN IF NOT EXISTS consent_email BOOLEAN NOT NULL DEFAULT TRUE;`);
+  await p.query(`ALTER TABLE gtq_leads ADD COLUMN IF NOT EXISTS followup_due_at TIMESTAMPTZ;`);
+  await p.query(`ALTER TABLE gtq_leads ADD COLUMN IF NOT EXISTS followup_sent_at TIMESTAMPTZ;`);
+  await p.query(`ALTER TABLE gtq_leads ADD COLUMN IF NOT EXISTS followup_error TEXT;`);
 }
 
 function cleanStr(s) {
@@ -74,16 +81,31 @@ export async function upsertLead(payload) {
   const mode = payload?.mode ?? null;
 
   const selections = payload?.selections ?? payload?.quote?.selections ?? null;
-  const quantity = Number.isFinite(payload?.quantity) ? payload.quantity : (Number.isFinite(payload?.quote?.quantity) ? payload.quote.quantity : null);
-  const cash = Number.isFinite(payload?.cash) ? payload.cash : (Number.isFinite(payload?.quote?.cash) ? payload.quote.cash : null);
-  const credit = Number.isFinite(payload?.credit) ? payload.credit : (Number.isFinite(payload?.quote?.credit) ? payload.quote.credit : null);
+  const quantity = Number.isFinite(payload?.quantity)
+    ? payload.quantity
+    : (Number.isFinite(payload?.quote?.quantity) ? payload.quote.quantity : null);
+
+  const cash = Number.isFinite(payload?.cash)
+    ? payload.cash
+    : (Number.isFinite(payload?.quote?.cash) ? payload.quote.cash : null);
+
+  const credit = Number.isFinite(payload?.credit)
+    ? payload.credit
+    : (Number.isFinite(payload?.quote?.credit) ? payload.quote.credit : null);
 
   const page = payload?.page ?? null;
 
+  // If your frontend ever sends something like payload.consent_email, respect it.
+  // Otherwise default TRUE.
+  const consentEmail =
+    typeof payload?.consent_email === "boolean" ? payload.consent_email : true;
+
   await p.query(
     `
-    INSERT INTO gtq_leads (email, phone, name, stage, category, mode, selections, quantity, cash, credit, page)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    INSERT INTO gtq_leads (
+      email, phone, name, stage, category, mode, selections, quantity, cash, credit, page, consent_email
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
     ON CONFLICT (email, phone)
     DO UPDATE SET
       name = COALESCE(EXCLUDED.name, gtq_leads.name),
@@ -95,13 +117,28 @@ export async function upsertLead(payload) {
       cash = COALESCE(EXCLUDED.cash, gtq_leads.cash),
       credit = COALESCE(EXCLUDED.credit, gtq_leads.credit),
       page = COALESCE(EXCLUDED.page, gtq_leads.page),
+      consent_email = COALESCE(EXCLUDED.consent_email, gtq_leads.consent_email),
 
+      -- ✅ Follow-up scheduling logic:
+      -- 1) Only schedule follow-up for BROWSING (once)
+      -- 2) If they later become COMPLETED, cancel pending follow-up and clear errors
       followup_due_at = CASE
+        WHEN EXCLUDED.stage = 'COMPLETED' THEN NULL
         WHEN gtq_leads.followup_due_at IS NULL
-         AND gtq_leads.followup_sent_at IS NULL
-         AND EXCLUDED.stage = 'COMPLETED'
+          AND gtq_leads.followup_sent_at IS NULL
+          AND EXCLUDED.stage = 'BROWSING'
         THEN NOW() + INTERVAL '1 hour'
         ELSE gtq_leads.followup_due_at
+      END,
+
+      followup_sent_at = CASE
+        WHEN EXCLUDED.stage = 'COMPLETED' THEN NULL
+        ELSE gtq_leads.followup_sent_at
+      END,
+
+      followup_error = CASE
+        WHEN EXCLUDED.stage = 'COMPLETED' THEN NULL
+        ELSE gtq_leads.followup_error
       END,
 
       updated_at = NOW()
@@ -118,6 +155,7 @@ export async function upsertLead(payload) {
       cash,
       credit,
       page,
+      consentEmail,
     ]
   );
 }

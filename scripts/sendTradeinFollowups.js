@@ -67,7 +67,7 @@ async function main() {
       AND followup_due_at <= NOW()
       AND email IS NOT NULL
       AND email <> ''
-      AND stage = 'COMPLETED'
+      AND stage = 'BROWSING'
     ORDER BY followup_due_at ASC
     LIMIT 25
   `);
