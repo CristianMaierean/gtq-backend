@@ -1,3 +1,13 @@
+function clean(s) {
+  return String(s ?? "").trim().replace(/\s+/g, " ");
+}
+
+function normBrand(v) {
+  const b = clean(v);
+  if (!b || b.toLowerCase() === "any") return "N/A";
+  return b;
+}
+
 export function computeQuote({ selections, mode }, offersMap) {
   if (!Array.isArray(selections) || selections.length === 0) {
     return { ok: false, error: "Missing selections" };
@@ -7,7 +17,7 @@ export function computeQuote({ selections, mode }, offersMap) {
   let credit = 0;
 
   for (const p of selections) {
-    const key = `${p.Category}||${p.Subgroup}||${p.Brand}||${p.Item}`;
+    const key = `${clean(p.Category)}||${clean(p.Subgroup)}||${normBrand(p.Brand)}||${clean(p.Item)}`;
     const offer = offersMap.get(key);
 
     if (!offer) {
@@ -23,9 +33,9 @@ export function computeQuote({ selections, mode }, offersMap) {
 
   // Full PC rule: must have GPU + CPU + RAM
   if (mode === "pc") {
-    const hasGPU = selections.some(p => p.Category === "GPU");
-    const hasCPU = selections.some(p => p.Category === "CPU");
-    const hasRAM = selections.some(p => p.Category === "RAM");
+    const hasGPU = selections.some(p => clean(p.Category) === "GPU");
+    const hasCPU = selections.some(p => clean(p.Category) === "CPU");
+    const hasRAM = selections.some(p => clean(p.Category) === "RAM");
 
     if (!hasGPU || !hasCPU || !hasRAM) {
       return { ok: false, error: "Full Gaming PC requires GPU + CPU + RAM." };

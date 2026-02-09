@@ -1,5 +1,11 @@
 import { getPricesCsvText } from "./loadPrices.js";
 
+function normBrand(v) {
+  const b = clean(v);
+  if (!b || b.toLowerCase() === "any") return "N/A";
+  return b;
+}
+
 function clean(s) {
   return String(s ?? "").trim().replace(/\s+/g, " ");
 }
@@ -87,7 +93,7 @@ export function loadPriceTable() {
     const cols = rows[i];
     if (!cols || cols.length < headers.length) continue;
 
-    const key = `${clean(cols[iCat])}||${clean(cols[iSub])}||${clean(cols[iBrand])}||${clean(cols[iItem])}`;
+    const key = `${clean(cols[iCat])}||${clean(cols[iSub])}||${normBrand(cols[iBrand])}||${clean(cols[iItem])}`;
 
     map.set(key, {
       cash: toNumber(cols[iCash]),
