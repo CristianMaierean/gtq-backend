@@ -95,6 +95,15 @@ export async function upsertLead(payload) {
       cash = COALESCE(EXCLUDED.cash, gtq_leads.cash),
       credit = COALESCE(EXCLUDED.credit, gtq_leads.credit),
       page = COALESCE(EXCLUDED.page, gtq_leads.page),
+
+      followup_due_at = CASE
+        WHEN gtq_leads.followup_due_at IS NULL
+         AND gtq_leads.followup_sent_at IS NULL
+         AND EXCLUDED.stage = 'COMPLETED'
+        THEN NOW() + INTERVAL '1 hour'
+        ELSE gtq_leads.followup_due_at
+      END,
+
       updated_at = NOW()
     `,
     [
