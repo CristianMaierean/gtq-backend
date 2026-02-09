@@ -100,12 +100,21 @@ export async function upsertLead(payload) {
   const consentEmail =
     typeof payload?.consent_email === "boolean" ? payload.consent_email : true;
 
-  await p.query(
+    await p.query(
     `
     INSERT INTO gtq_leads (
-      email, phone, name, stage, category, mode, selections, quantity, cash, credit, page, consent_email
+      email, phone, name, stage, category, mode, selections, quantity, cash, credit, page, consent_email,
+      followup_due_at, followup_sent_at, followup_error
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+      CASE
+        WHEN $4 = 'BROWSING' THEN NOW() + INTERVAL '1 hour'
+        ELSE NULL
+      END,
+      NULL,
+      NULL
+    )
     ON CONFLICT (email, phone)
     DO UPDATE SET
       name = COALESCE(EXCLUDED.name, gtq_leads.name),
@@ -119,9 +128,7 @@ export async function upsertLead(payload) {
       page = COALESCE(EXCLUDED.page, gtq_leads.page),
       consent_email = COALESCE(EXCLUDED.consent_email, gtq_leads.consent_email),
 
-      -- ✅ Follow-up scheduling logic:
-      -- 1) Only schedule follow-up for BROWSING (once)
-      -- 2) If they later become COMPLETED, cancel pending follow-up and clear errors
+      -- schedule ONLY for BROWSING (once), cancel if COMPLETED
       followup_due_at = CASE
         WHEN EXCLUDED.stage = 'COMPLETED' THEN NULL
         WHEN gtq_leads.followup_due_at IS NULL
