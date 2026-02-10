@@ -8,25 +8,21 @@ function clean(s) {
 }
 
 function formatSelections(selections) {
-  // selections is JSONB in your table. We'll format it safely.
   if (!selections) return "N/A";
 
-  // If it's your parts array:
   if (Array.isArray(selections)) {
     return selections
-      .map(p => {
+      .map((p) => {
         const cat = clean(p?.Category || p?.category);
         const sub = clean(p?.Subgroup || p?.subgroup);
         const brand = clean(p?.Brand || p?.brand);
         const item = clean(p?.Item || p?.item);
-        // build a readable line
         return [cat, sub, brand, item].filter(Boolean).join(" / ");
       })
       .filter(Boolean)
       .join("\n");
   }
 
-  // If it's an object (like full PC spec structure), stringify nicely:
   if (typeof selections === "object") {
     return JSON.stringify(selections, null, 2);
   }
@@ -34,7 +30,21 @@ function formatSelections(selections) {
   return clean(selections);
 }
 
+function pickEnv(...keys) {
+  for (const k of keys) {
+    const v = process.env[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
+  }
+  return "";
+}
+
+function toInt(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 async function main() {
+  // --- DB ---
   const DATABASE_URL = process.env.DATABASE_URL;
   if (!DATABASE_URL) throw new Error("Missing DATABASE_URL");
 
@@ -43,20 +53,47 @@ async function main() {
     ssl: { rejectUnauthorized: false },
   });
 
-  const host = process.env.ZOHO_SMTP_HOST || "smtppro.zoho.com";
-  const port = Number(process.env.ZOHO_SMTP_PORT || 465);
+  // --- SMTP / Zoho (supports both naming schemes) ---
+  const host = pickEnv("ZOHO_SMTP_HOST", "SMTP_HOST", "MAIL_HOST") || "smtppro.zoho.com";
+  const port = toInt(pickEnv("ZOHO_SMTP_PORT", "SMTP_PORT", "MAIL_PORT"), 465);
+
+  const user = pickEnv("ZOHO_SMTP_USER", "SMTP_USER", "MAIL_USER");
+  const pass = pickEnv("ZOHO_SMTP_PASS", "SMTP_PASS", "MAIL_PASS");
+
+  // Safe debug (won’t leak secrets)
+  console.log("EMAIL CONFIG DEBUG", {
+    host,
+    port,
+    secure: port === 465,
+    hasUser: !!user,
+    passLen: pass.length,
+    from: pickEnv("SMTP_FROM", "MAIL_FROM") || "info@gamertech.ca",
+  });
+
+  if (!user || !pass) {
+    // Fail the job loudly so you see it in Render logs
+    throw new Error(
+      "Missing SMTP credentials (user/pass). Check Render env vars: ZOHO_SMTP_USER/ZOHO_SMTP_PASS or SMTP_USER/SMTP_PASS."
+    );
+  }
 
   const transporter = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
-    auth: {
-      user: process.env.ZOHO_SMTP_USER, // info@gamertech.ca
-      pass: process.env.ZOHO_SMTP_PASS, // Zoho app password recommended
-    },
+    secure: port === 465, // Zoho on 465 requires secure true
+    auth: { user, pass },
   });
 
-  // Pull a small batch each run
+  // Optional but helpful: verify SMTP on each run (you can remove later)
+  try {
+    await transporter.verify();
+    console.log("SMTP verify: OK");
+  } catch (e) {
+    throw new Error(`SMTP verify failed: ${String(e?.message || e)}`);
+  }
+
+  // --- Fetch due leads ---
+  // NOTE: You currently require stage='BROWSING'. Keep or remove based on desired behavior.
   const { rows } = await pool.query(`
     SELECT id, name, email, selections, cash, credit
     FROM gtq_leads
@@ -71,6 +108,8 @@ async function main() {
     ORDER BY followup_due_at ASC
     LIMIT 25
   `);
+
+  console.log(`Due leads found: ${rows.length}`);
 
   for (const lead of rows) {
     const name = clean(lead.name) || "there";
@@ -101,9 +140,11 @@ Aaron
 GamerTech Team
 `;
 
+    const fromAddr = pickEnv("SMTP_FROM", "MAIL_FROM") || "info@gamertech.ca";
+
     try {
       await transporter.sendMail({
-        from: "GamerTech <info@gamertech.ca>",
+        from: `GamerTech <${fromAddr}>`,
         to: lead.email,
         subject,
         text,
@@ -116,20 +157,30 @@ GamerTech Team
          WHERE id = $1`,
         [lead.id]
       );
+
+      console.log(`Sent follow-up to ${lead.email} (id=${lead.id})`);
     } catch (err) {
+      // Save a detailed error message (still compact)
+      const msg =
+        String(err?.message || err) +
+        (err?.code ? ` | code=${err.code}` : "") +
+        (err?.response ? ` | response=${err.response}` : "");
+
       await pool.query(
         `UPDATE gtq_leads
          SET followup_error = $2
          WHERE id = $1`,
-        [lead.id, String(err?.message || err)]
+        [lead.id, msg]
       );
+
+      console.error(`Failed to send to ${lead.email} (id=${lead.id}):`, msg);
     }
   }
 
   await pool.end();
 }
 
-main().catch(err => {
-  console.error(err);
+main().catch((err) => {
+  console.error("Cron job failed:", err);
   process.exit(1);
 });
