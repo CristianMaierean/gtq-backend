@@ -1,5 +1,5 @@
 function clean(s) {
-  return String(s ?? "").trim().replace(/\s+/g, " ");
+  return String(s ?? "").trim().replace(/\s+/g, " ").replace(/[–—]/g, "-");
 }
 
 function normBrand(v) {
