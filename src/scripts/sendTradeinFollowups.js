@@ -30,6 +30,19 @@ function formatSelections(selections) {
   return clean(selections);
 }
 
+function pickEnv(...keys) {
+  for (const k of keys) {
+    const v = process.env[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
+  }
+  return "";
+}
+
+function toInt(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 async function main() {
   const DATABASE_URL = process.env.DATABASE_URL;
   if (!DATABASE_URL) throw new Error("Missing DATABASE_URL");
@@ -39,18 +52,30 @@ async function main() {
     ssl: { rejectUnauthorized: false },
   });
 
-  const host = process.env.ZOHO_SMTP_HOST || "smtppro.zoho.com";
-  const port = Number(process.env.ZOHO_SMTP_PORT || 465);
+  const host = pickEnv("ZOHO_SMTP_HOST", "SMTP_HOST", "MAIL_HOST") || "smtppro.zoho.com";
+  const port = toInt(pickEnv("ZOHO_SMTP_PORT", "SMTP_PORT", "MAIL_PORT"), 465);
+  const user = pickEnv("ZOHO_SMTP_USER", "SMTP_USER", "MAIL_USER");
+  const pass = pickEnv("ZOHO_SMTP_PASS", "SMTP_PASS", "MAIL_PASS");
+
+  if (!user || !pass) {
+    throw new Error(
+      "Missing SMTP credentials. Check Render env vars: ZOHO_SMTP_USER/ZOHO_SMTP_PASS or SMTP_USER/SMTP_PASS."
+    );
+  }
 
   const transporter = nodemailer.createTransport({
     host,
     port,
     secure: port === 465,
-    auth: {
-      user: process.env.ZOHO_SMTP_USER, // info@gamertech.ca
-      pass: process.env.ZOHO_SMTP_PASS, // Zoho app password recommended
-    },
+    auth: { user, pass },
   });
+
+  try {
+    await transporter.verify();
+    console.log("SMTP verify: OK");
+  } catch (e) {
+    console.warn("SMTP verify warning (will still attempt sends):", String(e?.message || e));
+  }
 
   const { rows } = await pool.query(`
     SELECT id, name, email, selections, cash, credit

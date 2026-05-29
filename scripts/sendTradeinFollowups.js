@@ -84,12 +84,11 @@ async function main() {
     auth: { user, pass },
   });
 
-  // Optional but helpful: verify SMTP on each run (you can remove later)
   try {
     await transporter.verify();
     console.log("SMTP verify: OK");
   } catch (e) {
-    throw new Error(`SMTP verify failed: ${String(e?.message || e)}`);
+    console.warn("SMTP verify warning (will still attempt sends):", String(e?.message || e));
   }
 
   // --- Fetch due leads ---
