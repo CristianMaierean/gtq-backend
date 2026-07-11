@@ -3,10 +3,11 @@ require('dotenv').config({ quiet: true })
 const db = require('./db')
 const { fetchAllFeedItems } = require('./sources')
 const { classifyHeadline } = require('./classify')
-const { fetchArticleContent } = require('./fetch-article')
+const { fetchArticleText } = require('./fetch-article')
 const { draftArticle } = require('./draft')
 const { renderArticleHtml } = require('./template')
 const { publishArticle } = require('./shopify')
+const { generateThumbnailSvg } = require('./thumbnail')
 
 const LOOKBACK_DAYS = parseInt(process.env.LOOKBACK_DAYS || '2', 10)
 const CONFIDENCE_THRESHOLD = 0.6
@@ -52,13 +53,9 @@ async function draftAndPublishConfirmed() {
 
     console.log(`\n→ Drafting: "${product.product_name}" (${product.category}) — ${sightings.length} source(s)`)
     const excerpts = []
-    let thumbnailUrl = null
     for (const s of sightings) {
-      const content = await fetchArticleContent(s.source_url)
-      if (content) {
-        excerpts.push({ sourceName: s.source_name, sourceUrl: s.source_url, text: content.text })
-        if (!thumbnailUrl && content.imageUrl) thumbnailUrl = content.imageUrl
-      }
+      const text = await fetchArticleText(s.source_url)
+      if (text) excerpts.push({ sourceName: s.source_name, sourceUrl: s.source_url, text })
     }
     if (excerpts.length === 0) {
       console.log('  ! could not fetch readable text from any source — skipping, will retry next run')
@@ -74,12 +71,13 @@ async function draftAndPublishConfirmed() {
     }
 
     const bodyHtml = renderArticleHtml(draft, sightings, product.category)
+    const thumbnailSvg = generateThumbnailSvg({ productName: product.product_name, category: product.category })
 
     try {
       const { blogHandle, article } = await publishArticle({
         title: draft.headline, handle: draft.slug, bodyHtml,
         seoTitle: draft.seoTitle, seoDesc: draft.seoDescription, tags: product.category,
-        image: thumbnailUrl,
+        thumbnailSvg,
       })
       await db.recordArticle(product.id, {
         shopifyArticleId: article.id, blogHandle, articleHandle: article.handle,
