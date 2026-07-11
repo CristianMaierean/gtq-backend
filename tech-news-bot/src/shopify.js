@@ -32,10 +32,11 @@ async function ensureBlog() {
   return cachedBlogId
 }
 
-async function publishArticle({ title, handle, bodyHtml, seoTitle, seoDesc, tags }) {
+async function publishArticle({ title, handle, bodyHtml, seoTitle, seoDesc, tags, image }) {
   const blogId = await ensureBlog()
   const payload = { article: {
     title, handle, author: 'GamerTech', body_html: bodyHtml, published: true, tags,
+    ...(image ? { image: { src: image, alt: title } } : {}),
     metafields: [
       { namespace: 'global', key: 'title_tag', value: seoTitle, type: 'single_line_text_field' },
       { namespace: 'global', key: 'description_tag', value: seoDesc, type: 'single_line_text_field' },

@@ -3,7 +3,7 @@ require('dotenv').config({ quiet: true })
 const db = require('./db')
 const { fetchAllFeedItems } = require('./sources')
 const { classifyHeadline } = require('./classify')
-const { fetchArticleText } = require('./fetch-article')
+const { fetchArticleContent } = require('./fetch-article')
 const { draftArticle } = require('./draft')
 const { renderArticleHtml } = require('./template')
 const { publishArticle } = require('./shopify')
@@ -52,9 +52,13 @@ async function draftAndPublishConfirmed() {
 
     console.log(`\n→ Drafting: "${product.product_name}" (${product.category}) — ${sightings.length} source(s)`)
     const excerpts = []
+    let thumbnailUrl = null
     for (const s of sightings) {
-      const text = await fetchArticleText(s.source_url)
-      if (text) excerpts.push({ sourceName: s.source_name, sourceUrl: s.source_url, text })
+      const content = await fetchArticleContent(s.source_url)
+      if (content) {
+        excerpts.push({ sourceName: s.source_name, sourceUrl: s.source_url, text: content.text })
+        if (!thumbnailUrl && content.imageUrl) thumbnailUrl = content.imageUrl
+      }
     }
     if (excerpts.length === 0) {
       console.log('  ! could not fetch readable text from any source — skipping, will retry next run')
@@ -75,6 +79,7 @@ async function draftAndPublishConfirmed() {
       const { blogHandle, article } = await publishArticle({
         title: draft.headline, handle: draft.slug, bodyHtml,
         seoTitle: draft.seoTitle, seoDesc: draft.seoDescription, tags: product.category,
+        image: thumbnailUrl,
       })
       await db.recordArticle(product.id, {
         shopifyArticleId: article.id, blogHandle, articleHandle: article.handle,

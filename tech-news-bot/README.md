@@ -203,6 +203,15 @@ To use Opus 4.8 instead of Sonnet 5 for higher-quality drafts (at ~2x cost,
   None are wired up by default — add NVIDIA/AMD/Intel/etc. newsroom RSS URLs
   to `src/sources.js` with `isOfficial: true` if you want same-day coverage
   the moment a manufacturer posts its own announcement.
+- **Thumbnails come from the source article's own og:image.** For each
+  confirmed candidate, `fetchArticleContent` also extracts the `og:image` (or
+  `twitter:image` fallback) from the first corroborating source that has one,
+  and Shopify downloads and hosts its own copy. This is deliberate: for
+  hardware-announcement news specifically, that image is very often just the
+  manufacturer's own press photo as reposted by the outlet. It's a judgment
+  call, not a risk-free one — if you'd rather not use third-party outlets'
+  hosted images at all, swap this for a fixed branded placeholder image in
+  `draftAndPublishConfirmed()` (`src/index.js`) instead.
 
 ## Files
 
@@ -211,7 +220,7 @@ To use Opus 4.8 instead of Sonnet 5 for higher-quality drafts (at ~2x cost,
 | `schema.sql` | Postgres tables: `seen_products`, `candidate_sightings`, `raw_headlines_seen`, `articles` |
 | `src/sources.js` | RSS feed list + fetcher |
 | `src/classify.js` | Haiku 4.5 headline classifier (structured output) |
-| `src/fetch-article.js` | Readability-based article text extraction |
+| `src/fetch-article.js` | Readability-based article text + og:image thumbnail extraction |
 | `src/draft.js` | Sonnet 5 grounded article drafter (structured output) |
 | `src/internal-links.js` | Whitelisted GamerTech URLs the drafter can link to |
 | `src/template.js` | Renders the final `body_html` + schema.org JSON-LD |
