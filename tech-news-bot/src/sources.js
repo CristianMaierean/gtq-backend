@@ -1,5 +1,11 @@
 const Parser = require('rss-parser')
-const parser = new Parser({ timeout: 15000 })
+const parser = new Parser({
+  timeout: 15000,
+  // Some outlets 403 generic/bot-flagged User-Agents (common for cloud/
+  // datacenter IPs like Render's) — a normal browser UA avoids that for
+  // sites that only check the header rather than doing deeper bot detection.
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' },
+})
 
 /**
  * Curated RSS sources. `isRumorSource: true` means this outlet alone can
