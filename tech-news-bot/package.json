@@ -1,0 +1,23 @@
+{
+  "name": "tech-news-bot",
+  "version": "1.0.0",
+  "description": "Daily bot: finds new PC hardware announcements, cross-checks sources, writes a grounded blog post, publishes to the GamerTech Shopify blog.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "setup-db": "node -e \"require('./src/db').runMigration()\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "dotenv": "latest",
+    "@mozilla/readability": "latest",
+    "jsdom": "latest",
+    "pg": "latest",
+    "rss-parser": "latest",
+    "zod": "latest"
+  }
+}
