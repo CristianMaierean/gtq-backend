@@ -23,6 +23,21 @@ const FEEDS = [
   { name: 'PCWorld', url: 'https://www.pcworld.com/feed', isRumorSource: false },
   { name: 'Ars Technica (Gadgets)', url: 'https://arstechnica.com/gadgets/feed/', isRumorSource: false },
   { name: 'VideoCardz', url: 'https://videocardz.com/feed', isRumorSource: true }, // GPU rumor mill — corroboration only
+  // Added 2026-07-17 to widen the pool of raw candidates/corroboration chances
+  // (same classifier + 2-source rule — this only adds more sources, not a lower bar).
+  { name: 'HotHardware', url: 'https://hothardware.com/rss/news', isRumorSource: false },
+  { name: 'KitGuru', url: 'https://www.kitguru.net/feed/', isRumorSource: false },
+  { name: 'Neowin', url: 'https://www.neowin.net/news/rss/', isRumorSource: false },
+  { name: 'PC Gamer', url: 'https://www.pcgamer.com/rss/', isRumorSource: false },
+  { name: 'Digital Trends (Computing)', url: 'https://www.digitaltrends.com/computing/feed/', isRumorSource: false },
+  { name: 'Engadget', url: 'https://www.engadget.com/rss.xml', isRumorSource: false },
+  { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', isRumorSource: false },
+  { name: 'Windows Central', url: 'https://www.windowscentral.com/rss.xml', isRumorSource: false },
+  // Tried and excluded: Tweaktown and Overclock3D 403 even with a real browser
+  // User-Agent (Cloudflare bot protection, not UA-based) — would just log
+  // failed-fetch noise every run. Notebookcheck and AnandTech's RSS endpoints
+  // returned 404 (URLs may have changed or the feed was discontinued) — revisit
+  // later if a working feed URL turns up.
 ]
 
 async function fetchAllFeedItems(lookbackDays) {
