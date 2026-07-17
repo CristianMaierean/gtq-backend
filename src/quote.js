@@ -31,14 +31,16 @@ export function computeQuote({ selections, mode }, offersMap) {
     credit += Number(offer.credit || 0);
   }
 
-  // Full PC rule: must have GPU + CPU + RAM
+  // Full PC rule: must have GPU + CPU + RAM + Storage + Motherboard
   if (mode === "pc") {
     const hasGPU = selections.some(p => clean(p.Category) === "GPU");
     const hasCPU = selections.some(p => clean(p.Category) === "CPU");
     const hasRAM = selections.some(p => clean(p.Category) === "RAM");
+    const hasStorage = selections.some(p => clean(p.Category) === "Storage");
+    const hasMotherboard = selections.some(p => clean(p.Category) === "Motherboard");
 
-    if (!hasGPU || !hasCPU || !hasRAM) {
-      return { ok: false, error: "Full Gaming PC requires GPU + CPU + RAM." };
+    if (!hasGPU || !hasCPU || !hasRAM || !hasStorage || !hasMotherboard) {
+      return { ok: false, error: "Full Gaming PC requires GPU + CPU + RAM + Storage + Motherboard." };
     }
 
     cash += 50;
